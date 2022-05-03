@@ -40,6 +40,9 @@ class ConvLayer:
         self.y_ch=n_flt
         self.y_h=(x_h-flt_h+2*pad)//stride+1
         self.y_w=(x_w-flt_w+2*pad)//stride+1
+        #ADaGrad算法通用
+        self.h_w=np.zeros((n_flt,x_ch,flt_h,flt_w))+1e-8
+        self.h_b=np.zeros((1,n_flt))+1e-8
     def forward (self,x):
         n_bt=x.shape[0]
         x_ch,x_h,x_w,n_flt,flt_h,flt_w,stride,pad=self.params
@@ -61,6 +64,12 @@ class ConvLayer:
         grad_cols=np.dot(delta,self.w_col)
         x_shape=(n_bt,x_ch,x_h,x_w)
         self.grad_x=col2im(grad_cols.T,x_shape,flt_h,flt_w,y_h,y_w,stride,pad)
+    def update(self,eta):
+        self.h_w+=self.grad_w*self.grad_w
+        self.w-=eta/np.sqrt(self.h_w)*self.grad_w
+        self.h_b+=self.grad_b*self.grad_b
+        self.b-=eta/np.sqrt(self.h_b)*self.grad_b
+#池化层
 class   PoolingLayer:
     def __init__(self,x_ch,x_h,x_w,pool,pad):
         self.params=(x_ch,x_h,x_w,pool,pad)
@@ -94,7 +103,7 @@ class BaseLayer():
         self.b=wb_width*np.random.randn(n)
         self.h_w=np.zeros((n_upper,n))+1e-8
         self.h_b=np.zeros(n)+1e-8
-    def updata(self,eta):
+    def update(self,eta):
         self.h_w+=self.grad_w*self.grad_w
         self.h_b+=self.grad_b*self.grad_b
         self.w-=eta/np.sqrt(self.h_w)*self.grad_w
@@ -161,6 +170,95 @@ epoch=50
 batch_size=8
 interval=10
 n_sample=200
+#各个网络层的初始化
+cl_1=ConvLayer(img_ch,img_h,img_w,10,3,3,1,1)
+pl_1=PoolingLayer(cl_1.y_ch,cl_1.y_h,cl_1.y_w,2,0)
+n_fc_in=pl_1.y_ch*pl_1.y_h*pl_1.y_w
+ml_1=MiddleLayer(n_fc_in,100)
+ol_1=OutputLayer(100,10)
+
+
+def forward_propagation(x):
+
+    n_bt=x.shape[0]
+    images=x.reshape(n_bt,img_ch,img_h,img_w)
+    cl_1.forward(images)
+    pl_1.forward(cl_1.y)
+    fc_input=pl_1.y.reshape(n_bt,-1)
+    ml_1.forward(fc_input)
+    ol_1.forward(ml_1.y)
+def backpropagation(t):
+    n_bt=t.shape[0]
+    ol_1.backward(t)
+    ml_1.backward(ol_1.grad_x)
+    grad_img=ml_1.grad_x.reshape(n_bt,pl_1.y_ch,pl_1.y_h,pl_1.y_w)
+    pl_1.backward(grad_img)
+    cl_1.backward(pl_1.grad_x)
+def updata_wb():
+    cl_1.update(eta)
+    ml_1.update(eta)
+    ol_1.update(eta)
+def get_error(t,batch_size):
+    return -np.sum(t*np.log(ol_1.y+1e-7))/batch_size
+def forward_sample(inp,correct,n_sample):
+    index_rand=np.arange(len(correct))
+    np.random.shuffle(index_rand)
+    index_rand=index_rand[:n_sample]
+    x=inp[index_rand,:]
+    t=correct[index_rand,:]
+    forward_propagation(x)
+    return x,t
+#--用于对误差进行记录--
+train_error_x=[]
+train_error_y=[]
+test_error_x=[]
+test_error_y=[]
+#开始训练
+n_batch=n_train//batch_size
+for i in range(epoch):
+    x,t=forward_sample(input_train,correct_train ,n_train)
+    error_train=get_error(t,n_train)
+    x,t=forward_sample(input_test,correct_test,n_test)
+    error_test=get_error(t,n_test)
+    #误差的记录
+    train_error_x.append(i)
+    train_error_y.append(error_train)
+    test_error_x.append(i)
+    test_error_y.append(error_test)
+    #处理进度显示
+    if i%interval==0:
+        print("Epoch"+str(i)+"/"+str(epoch),
+              "Error_train"+str(error_train),
+              "Error_test"+str(error_test))
+    #学习
+    index_rand=np.arange(n_train)
+    np.random.shuffle(index_rand)
+    for j in range(n_batch):
+        mb_index=index_rand[j*batch_size:(j+1)*batch_size]
+        x=input_data[mb_index,:]
+        t=correct_train[mb_index,:]
+
+        forward_propagation(x)
+        backpropagation(t)
+        updata_wb()
+plt.plot(train_error_x,train_error_y,label="trian")
+plt.plot(test_error_x,test_error_y,label="Test")
+plt.legend()
+plt.xlabel("Epochs")
+plt.ylabel("Error")
+plt.show()
+x,t=forward_sample(input_train,correct_train,n_train)
+count_train=np.sum(np.argmax(ol_1.y,axis=1)==np.argmax(t,axis=1))
+x,t=forward_sample(input_test,correct_test,n_test)
+count_test=np.sum(np.argmax(ol_1.y,axis=1)==np.argmax(t,axis=1))
+print("Accuracy Train:",str(count_train/n_train*100)+"%",
+      "Accuracy Test:",str(count_test/n_test*100)+"%")
+
+
+
+
+
+
 
 
 
