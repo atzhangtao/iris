@@ -1,4 +1,5 @@
 import numpy as np
+# --im2col--方便正向传播时图像的卷积计算
 def im2col(images,flt_h,flt_w,out_h,out_w,stride,pad):
     n_bt,n_ch,img_h,img_w=images.shape
     img_pad=np.pad(images,[(0,0),(0,0),(pad,pad),(pad,pad)],"constant")
@@ -10,6 +11,7 @@ def im2col(images,flt_h,flt_w,out_h,out_w,stride,pad):
             cols[:,:,h,w,:,:]=img_pad[:,:,h:h_him:stride,w:w_him:stride]
     cols=cols.transpose(1,2,3,0,4,5).reshape(n_ch*flt_h*flt_w,n_bt*out_h*out_w)
     return cols
+#--col2im--用于反向传播时将梯度的cols转换为输入时的图像尺寸大小
 def col2im(cols,img_shape,flt_h,flt_w,out_h,out_w,stride,pad):
     n_bt,n_ch,img_h,img_w=img_shape
     cols=cols.reshape(n_ch,flt_h,flt_w,n_bt,out_h,out_w).transpose(3,0,1,2,4,5)
@@ -20,8 +22,14 @@ def col2im(cols,img_shape,flt_h,flt_w,out_h,out_w,stride,pad):
              w_him=w+stride*out_w
              images[:,:,h:h_him:stride,w:w_him:stride]+=cols[:,:,h,w,:,:]
     return  images[:,:,pad:img_h+pad,pad:img_w+pad]
-wb_width=0.2
+#--卷积层--
 class ConvLayer:
+    #n_bt:批次尺寸，x_ch：输入的通道数量，x_h:输入时图像的高度，x_w:输入图像的宽度
+    #n_fit：过滤器的数量，flt_h:过滤器的高度，flt_w:过滤器的宽度
+    #stride：步长幅度，pad：填充的幅度
+    #y_ch：输出的通道数量，y_h：输出的高度，y_w:输出的宽度
+
+
     def __init__(self,x_ch,x_h,x_w,n_flt,flt_h,flt_w,stride,pad):
 
         self.params=(x_ch,x_h,x_w,n_flt,flt_h,flt_w,stride,pad)
@@ -102,14 +110,58 @@ class MiddleLayer(BaseLayer):
         self.grad_w=np.dot(self.x.T,delta)
         self.grad_b=np.sum(delta,axis=0)
         self.grad_x=np.dot(delta,self.w.T)
-class OutputLayer(BaseLayer)
+class OutputLayer(BaseLayer):
     def forward(self,x):
         self.x=x
         u=np.dot(x,self.w)+self.b
         self.y=np.exp(u)/np.sum(np.exp(u),axis=1).reshape(-1,1)
     def backward(self,t):
         delta=self.y-t
-        self.grad_w=self.y-t
+        self.grad_w=np.dot(self.x.T,delta)
+
+        self.grad_b=np.sum(delta,axis=0)
+        self.grad_x=np.dot(delta,self.w.T)
+import matplotlib.pyplot as plt
+from sklearn import datasets
+#手写文字的数据集读入
+digits_data=datasets.load_digits()
+input_data=digits_data.data
+plt.imshow(input_data[0].reshape(8,8),cmap="gray")
+plt.show()
+correct=digits_data.target
+n_data=len(correct)
+#数据标准化
+ave_input=np.average(input_data)
+std_input=np.std(input_data)
+inputa_data=(input_data-ave_input)/std_input
+plt.imshow(inputa_data[0].reshape(8,8),cmap="gray")
+plt.show()
+#将答案转化为独热编码格式
+correct_data=np.zeros((n_data,10))
+for i in range(n_data):
+    correct_data[i,correct[i]]=1
+#训练数据和测试数据
+index=np.arange(n_data)
+index_train=index[index%3!=0]
+index_test=index[index%3==0]
+input_train=input_data[index_train,:]
+correct_train=correct_data[index_train,:]
+input_test=input_data[index_test,:]
+correct_test=correct_data[index_test,:]
+
+n_train=input_train.shape[0]
+n_test=input_test.shape[0]
+#--各个设置值--
+img_h=8
+img_w=8
+img_ch=1
+wb_width=0.1
+eta=0.01
+epoch=50
+batch_size=8
+interval=10
+n_sample=200
+
 
 
 
