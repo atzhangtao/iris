@@ -235,7 +235,7 @@ for i in range(epoch):
     np.random.shuffle(index_rand)
     for j in range(n_batch):
         mb_index=index_rand[j*batch_size:(j+1)*batch_size]
-        x=input_data[mb_index,:]
+        x=input_train[mb_index,:]
         t=correct_train[mb_index,:]
 
         forward_propagation(x)
