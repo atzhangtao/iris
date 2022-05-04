@@ -130,6 +130,19 @@ class OutputLayer(BaseLayer):
 
         self.grad_b=np.sum(delta,axis=0)
         self.grad_x=np.dot(delta,self.w.T)
+class Dropout(BaseLayer):
+    def __init__(self,dropout_ratio):
+           self.drapout_ratio=dropout_ratio
+    def forward(self,x,is_train):
+        if is_train:
+            rand=np.random.rand(*x.shape)
+            self.dropout=np.where(rand>=self.drapout_ratio,1,0)
+            self.y=self.dropout*x
+        else:
+            self.y=(1-self.drapout_ratio)*x
+
+    def backford(self,grad_y):
+        self.grad_x=grad_y*self.dropout
 import matplotlib.pyplot as plt
 from sklearn import datasets
 #手写文字的数据集读入
@@ -171,32 +184,46 @@ batch_size=8
 interval=10
 n_sample=200
 #各个网络层的初始化
-cl_1=ConvLayer(img_ch,img_h,img_w,10,3,3,1,1)
-pl_1=PoolingLayer(cl_1.y_ch,cl_1.y_h,cl_1.y_w,2,0)
+cl_1=ConvLayer(img_ch,img_h,img_w,20,3,3,1,1)
+cl_2=ConvLayer(cl_1.y_ch,cl_1.y_h,cl_1.y_w,20,3,3,1,1)
+pl_1=PoolingLayer(cl_2.y_ch,cl_2.y_h,cl_2.y_w,2,0)
 n_fc_in=pl_1.y_ch*pl_1.y_h*pl_1.y_w
-ml_1=MiddleLayer(n_fc_in,100)
-ol_1=OutputLayer(100,10)
+ml_1=MiddleLayer(n_fc_in,200)
+dr_1=Dropout(0.5)
+ml_2=MiddleLayer(200,200)
+dr_2=Dropout(0.5)
+ol_1=OutputLayer(200,10)
 
 
-def forward_propagation(x):
+def forward_propagation(x,is_train):
 
     n_bt=x.shape[0]
     images=x.reshape(n_bt,img_ch,img_h,img_w)
     cl_1.forward(images)
-    pl_1.forward(cl_1.y)
+    cl_2.forward(cl_1.y)
+    pl_1.forward(cl_2.y)
     fc_input=pl_1.y.reshape(n_bt,-1)
     ml_1.forward(fc_input)
-    ol_1.forward(ml_1.y)
+    dr_1.forward(ml_1.y,is_train)
+    ml_2.forward(dr_1.y)
+    dr_2.forward(ml_2.y,is_train)
+    ol_1.forward(dr_2.y)
 def backpropagation(t):
     n_bt=t.shape[0]
     ol_1.backward(t)
-    ml_1.backward(ol_1.grad_x)
+    dr_2.backford(ol_1.grad_x)
+    ml_2.backward(dr_2.grad_x)
+    dr_1.backford(ml_2.grad_x)
+    ml_1.backward(dr_1.grad_x)
     grad_img=ml_1.grad_x.reshape(n_bt,pl_1.y_ch,pl_1.y_h,pl_1.y_w)
     pl_1.backward(grad_img)
-    cl_1.backward(pl_1.grad_x)
+    cl_2.backward(pl_1.grad_x)
+    cl_1.backward(cl_2.grad_x)
 def updata_wb():
     cl_1.update(eta)
+    cl_2.update(eta)
     ml_1.update(eta)
+    ml_2.update(eta)
     ol_1.update(eta)
 def get_error(t,batch_size):
     return -np.sum(t*np.log(ol_1.y+1e-7))/batch_size
@@ -206,7 +233,7 @@ def forward_sample(inp,correct,n_sample):
     index_rand=index_rand[:n_sample]
     x=inp[index_rand,:]
     t=correct[index_rand,:]
-    forward_propagation(x)
+    forward_propagation(x,False)
     return x,t
 #--用于对误差进行记录--
 train_error_x=[]
@@ -238,7 +265,7 @@ for i in range(epoch):
         x=input_train[mb_index,:]
         t=correct_train[mb_index,:]
 
-        forward_propagation(x)
+        forward_propagation(x,True)
         backpropagation(t)
         updata_wb()
 plt.plot(train_error_x,train_error_y,label="trian")
